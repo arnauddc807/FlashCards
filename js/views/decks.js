@@ -222,7 +222,10 @@ export async function createEmptyDeck({ navigate }) {
 }
 
 export async function importDeckFiles({ navigate, deckId = null }) {
-  const files = await pickFiles({ accept: '.deck,.jsonl,.json,.txt,text/plain', multiple: !deckId });
+  // No `accept` filter: iOS maps accept extensions to registered file types,
+  // and `.deck` is not one, so the Files picker greys .deck files out instead
+  // of offering them. Accept anything and let parseDeckFile judge the content.
+  const files = await pickFiles({ multiple: !deckId });
   if (!files.length) return;
 
   let lastDeckId = null;

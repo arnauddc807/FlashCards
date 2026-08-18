@@ -5,7 +5,7 @@
  * version below changes); everything else falls back to the network.
  */
 
-const VERSION = 'v1';
+const VERSION = 'v2';
 const CACHE = `flashcards-${VERSION}`;
 
 const SHELL = [
