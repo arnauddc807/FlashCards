@@ -185,7 +185,7 @@ export async function shareFile(blob, filename, title) {
 /** Open a file picker and resolve with the chosen File objects. */
 export function pickFiles({ accept = '', multiple = false } = {}) {
   return new Promise((resolve) => {
-    const input = el('input', { type: 'file', accept, multiple, style: { display: 'none' } });
+    const input = el('input', { type: 'file', accept: accept || null, multiple, style: { display: 'none' } });
     document.body.appendChild(input);
     input.addEventListener('change', () => {
       resolve([...(input.files || [])]);
