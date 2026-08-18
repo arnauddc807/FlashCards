@@ -54,16 +54,21 @@ The app is deployed to GitHub Pages from `main` by
 [`.github/workflows/pages.yml`](.github/workflows/pages.yml). Pull requests run
 the test suite; only pushes to `main` deploy, and only if the tests pass.
 
-To enable it on a fresh clone or fork, once:
+The workflow turns Pages on itself (`configure-pages` runs with
+`enablement: true`), so a fresh clone or fork only needs a push to `main`. The
+site then appears at `https://<user>.github.io/<repo>/`, and the workflow prints
+the URL in its run summary.
 
-1. **Settings → Pages → Build and deployment → Source: GitHub Actions.**
-2. **Settings → Branches → Default branch: `main`.**
-3. Push to `main`. The site appears at
-   `https://<user>.github.io/<repo>/` and the workflow prints the URL in its
-   summary.
+Two things are worth checking once:
 
-Any other static host works too — there is nothing to build, so serving the
-repository root is enough.
+- **Settings → Branches → Default branch** should be `main`.
+- **Settings → Pages → Source** should read *GitHub Actions*. If it says
+  *Deploy from a branch*, the legacy Jekyll builder is publishing the site
+  instead of this workflow; the first Actions deploy switches it over.
+
+GitHub Pages on a **private** repository requires a paid plan. On the free plan
+either make the repository public or host the folder somewhere else — there is
+nothing to build, so any static host works.
 
 Every path in the app is relative and the manifest uses `"start_url": "./"`, so
 it runs correctly from a project subpath such as `/FlashCards/` as well as from
