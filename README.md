@@ -8,6 +8,10 @@ Runs entirely in the browser: no server, no account, no network. Everything is
 stored on the device in IndexedDB, and it works offline once installed to the
 home screen.
 
+**▶ [Open the app](https://arnauddc807.github.io/FlashCards/)** — hosted on
+GitHub Pages. On a phone, open that link and use **Add to Home Screen** to
+install it; after the first load it works with no connection at all.
+
 <!-- screenshots live in docs/ if you add them -->
 
 ## What it does
@@ -46,8 +50,29 @@ filesystem will not work.
 
 ### Deploying
 
-Any static host will do. A GitHub Pages workflow is included: push to `main`
-and enable Pages with the *GitHub Actions* source.
+The app is deployed to GitHub Pages from `main` by
+[`.github/workflows/pages.yml`](.github/workflows/pages.yml). Pull requests run
+the test suite; only pushes to `main` deploy, and only if the tests pass.
+
+The workflow turns Pages on itself (`configure-pages` runs with
+`enablement: true`), so a fresh clone or fork only needs a push to `main`. The
+site then appears at `https://<user>.github.io/<repo>/`, and the workflow prints
+the URL in its run summary.
+
+Two things are worth checking once:
+
+- **Settings → Branches → Default branch** should be `main`.
+- **Settings → Pages → Source** should read *GitHub Actions*. If it says
+  *Deploy from a branch*, the legacy Jekyll builder is publishing the site
+  instead of this workflow; the first Actions deploy switches it over.
+
+GitHub Pages on a **private** repository requires a paid plan. On the free plan
+either make the repository public or host the folder somewhere else — there is
+nothing to build, so any static host works.
+
+Every path in the app is relative and the manifest uses `"start_url": "./"`, so
+it runs correctly from a project subpath such as `/FlashCards/` as well as from
+a domain root.
 
 ## Making decks
 
@@ -155,6 +180,8 @@ skill/study-deck.skill  the deck-generating Claude skill
 test/                   node:test unit tests
 tools/embed-skill.mjs   regenerates js/skillfile.js
 sw.js                   service worker (offline)
+.nojekyll               keeps Pages from running the files through Jekyll
+.github/workflows/      tests on every PR, deploy to Pages from main
 ```
 
 ## Tests
