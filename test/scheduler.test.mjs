@@ -199,3 +199,34 @@ test('a full lifecycle keeps every value finite and sane', () => {
   }
   assert.ok(card.reps === grades.length);
 });
+
+test('sampleRandom draws n unique items and never mutates the input', async () => {
+  const { sampleRandom } = await import('../js/scheduler.js');
+  const items = Array.from({ length: 30 }, (_, i) => i);
+  const frozen = JSON.stringify(items);
+  const picked = sampleRandom(items, 10);
+  assert.equal(picked.length, 10);
+  assert.equal(new Set(picked).size, 10, 'no repeats');
+  for (const p of picked) assert.ok(items.includes(p));
+  assert.equal(JSON.stringify(items), frozen, 'input untouched');
+});
+
+test('sampleRandom handles n larger than the pool and n of zero', async () => {
+  const { sampleRandom } = await import('../js/scheduler.js');
+  assert.equal(sampleRandom([1, 2, 3], 99).length, 3);
+  assert.deepEqual(sampleRandom([1, 2, 3], 0), []);
+  assert.deepEqual(sampleRandom([], 5), []);
+});
+
+test('sampleRandom is deterministic under an injected rng and covers the pool', async () => {
+  const { sampleRandom } = await import('../js/scheduler.js');
+  const items = [10, 20, 30, 40, 50];
+  const rng = (seed) => () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  assert.deepEqual(sampleRandom(items, 3, rng(7)), sampleRandom(items, 3, rng(7)));
+  // Every element must be reachable across seeds — a biased sampler fails this.
+  const seen = new Set();
+  for (let seed = 1; seed <= 40; seed++) {
+    for (const v of sampleRandom(items, 2, rng(seed))) seen.add(v);
+  }
+  assert.equal(seen.size, items.length);
+});

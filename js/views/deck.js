@@ -89,6 +89,13 @@ export async function renderDeck(container, { navigate, params }) {
               : null,
           ])
         : null,
+      breakdown.total - breakdown.suspended >= 2
+        ? el('button', {
+            class: 'btn btn--ghost btn--block mt-2',
+            type: 'button',
+            onclick: () => configureExam(deck, breakdown.total - breakdown.suspended, { navigate }),
+          }, [icon('edit'), el('span', { text: 'Take an exam' })])
+        : null,
     ])
   );
 
@@ -141,6 +148,65 @@ function stat(value, label, hint) {
     el('div', { class: 'stat__label', text: label }),
     hint ? el('div', { class: 'stat__hint', text: hint }) : null,
   ]);
+}
+
+/**
+ * Ask how many random questions, then start the exam. Exams sample the whole
+ * deck regardless of due dates and never touch the FSRS schedule.
+ */
+async function configureExam(deck, poolSize, { navigate }) {
+  const max = poolSize;
+  let count = Math.min(20, max);
+
+  const out = el('output', {
+    text: String(count),
+    style: { fontSize: '1.6rem', fontWeight: '700', fontVariantNumeric: 'tabular-nums' },
+  });
+  const slider = el('input', {
+    class: 'slider',
+    type: 'range',
+    min: '1',
+    max: String(max),
+    step: '1',
+    value: String(count),
+    'aria-label': 'Number of questions',
+  });
+  slider.addEventListener('input', () => {
+    count = parseInt(slider.value, 10);
+    out.textContent = String(count);
+  });
+
+  const preset = (n, label) =>
+    el('button', {
+      class: 'tag-chip',
+      type: 'button',
+      text: label || String(n),
+      onclick: () => { count = n; slider.value = String(n); out.textContent = String(n); },
+    });
+  const presets = [10, 20, 50].filter((n) => n < max);
+
+  const body = el('div', {}, [
+    el('div', { class: 'center mb-4' }, [out, el('div', { class: 'small faint', text: `of ${max} cards, drawn at random` })]),
+    slider,
+    el('div', { class: 'row row--wrap mt-2', style: { justifyContent: 'center' } }, [
+      ...presets.map((n) => preset(n)),
+      preset(max, `All ${max}`),
+    ]),
+    el('p', {
+      class: 'small faint mt-4',
+      text: 'Swipe right if you got it, left if you missed it. Your score comes at the end — exams never change your review schedule.',
+    }),
+  ]);
+
+  const action = await sheet({
+    title: 'Take an exam',
+    body,
+    actions: [
+      { label: 'Cancel', value: null, kind: 'ghost' },
+      { label: 'Start', value: 'start', kind: 'primary' },
+    ],
+  });
+  if (action === 'start') navigate('exam', { deckId: deck.id, n: String(count) });
 }
 
 /* ------------------------------------------------------------- browser */

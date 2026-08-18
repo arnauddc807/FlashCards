@@ -23,6 +23,10 @@ install it; after the first load it works with no connection at all.
   approximation — including same-day review handling and the post-lapse
   stability cap.
 - **Multiple decks**, each with its own counts, browser and statistics.
+- **Exam mode.** A chosen number of random questions from the whole deck,
+  self-graded correct/wrong with the same swipes, scored at the end with a
+  per-topic breakdown and a one-tap retake of what you missed. Exams never
+  touch the review schedule.
 - **Statistics** that answer the three questions worth asking: how much have I
   done, how well is it sticking, and how much work is coming.
 - **A settings panel** exposing the whole algorithm — desired retention,

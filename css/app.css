@@ -1057,3 +1057,50 @@ h1, h2, h3, h4 { margin: 0; font-weight: 650; letter-spacing: -0.01em; }
   .study__stage { padding: 20px; }
   .flashcard { max-width: 520px; height: min(100%, 620px); }
 }
+
+/* ---------------------------------------------------------------- exam mode */
+
+.count--wrong { background: var(--again-soft); color: var(--again); }
+
+/* Two-verdict action bar: equal, big, unambiguous. */
+.grade-btn--exam { width: 72px; height: 72px; }
+.grade-btn--exam svg { width: 30px; height: 30px; }
+
+.exam-scorebar {
+  display: flex;
+  height: 12px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--surface-2);
+  margin: 0 0 20px;
+}
+.exam-scorebar__seg--correct { background: var(--good); }
+.exam-scorebar__seg--wrong   { background: var(--again); }
+
+.exam-tags { padding: 6px 16px; margin-bottom: 20px; text-align: left; }
+.exam-tags__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+.exam-tags__row:last-child { border-bottom: 0; }
+.exam-tags__name { color: var(--text-muted); font-weight: 600; }
+.exam-tags__score { font-weight: 700; }
+
+.exam-missed { text-align: left; margin-bottom: 20px; }
+.exam-missed__item {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--again);
+  border-radius: var(--radius-sm);
+  padding: 11px 14px;
+  margin-bottom: 8px;
+}
+.exam-missed__q { font-weight: 600; font-size: 0.92rem; line-height: 1.35; }
+.exam-missed__a { font-size: 0.84rem; color: var(--text-muted); margin-top: 4px; }
+
+.summary__actions { display: flex; flex-direction: column; gap: 10px; }
