@@ -11,7 +11,7 @@ import { renderDecks } from './views/decks.js';
 import { renderDeck } from './views/deck.js';
 import { renderStats } from './views/stats.js';
 import { renderSettings } from './views/settings.js';
-import { openStudy } from './views/study.js';
+import { openStudy, openExam } from './views/study.js';
 
 const TABS = [
   { id: 'decks', label: 'Decks', icon: 'decks' },
@@ -27,7 +27,7 @@ const ROUTES = {
 };
 
 /** Which tab is highlighted for a given route. */
-const TAB_FOR_ROUTE = { decks: 'decks', deck: 'decks', stats: 'stats', settings: 'settings' };
+const TAB_FOR_ROUTE = { decks: 'decks', deck: 'decks', stats: 'stats', settings: 'settings', exam: 'decks' };
 
 const app = {
   route: 'decks',
@@ -47,7 +47,7 @@ function parseHash() {
   if (query) {
     for (const [k, v] of new URLSearchParams(query)) params[k] = v;
   }
-  const known = Boolean(ROUTES[path]) || path === 'study';
+  const known = Boolean(ROUTES[path]) || path === 'study' || path === 'exam';
   const route = known ? path : 'decks';
   return { route, params };
 }
@@ -76,9 +76,9 @@ async function render() {
   app.route = route;
   app.params = params;
 
-  // Study is a full-screen overlay rather than a tab.
-  if (route === 'study') {
-    await enterStudy(params);
+  // Study and exam are full-screen overlays rather than tabs.
+  if (route === 'study' || route === 'exam') {
+    await enterStudy(route, params);
     return;
   }
 
@@ -106,19 +106,21 @@ async function render() {
   window.scrollTo(0, 0);
 }
 
-async function enterStudy(params) {
+async function enterStudy(kind, params) {
   if (app.studySession) return;
   const deck = (await getAll('decks')).find((d) => d.id === params.deckId);
   if (!deck) { navigate('decks'); return; }
 
   app.tabbar.style.display = 'none';
-  app.studySession = await openStudy(deck, {
-    onExit: () => {
-      app.studySession = null;
-      app.tabbar.style.display = '';
-      navigate('deck', { deckId: deck.id });
-    },
-  });
+  const onExit = () => {
+    app.studySession = null;
+    app.tabbar.style.display = '';
+    navigate('deck', { deckId: deck.id });
+  };
+
+  app.studySession = kind === 'exam'
+    ? await openExam(deck, { count: Math.max(1, parseInt(params.n, 10) || 20), onExit })
+    : await openStudy(deck, { onExit });
 }
 
 function updateTabbar() {
@@ -188,9 +190,13 @@ async function boot() {
   await maybeSeedSampleDeck();
 
   window.addEventListener('hashchange', () => {
-    // Leaving study by the back gesture should tear the session down.
-    if (app.studySession && parseHash().route !== 'study') {
-      app.studySession.destroy();
+    // Leaving study or exam by the back gesture should tear the overlay down.
+    // Retakes chain new sessions, so remove by DOM class rather than trusting
+    // the stored reference to still be the live one.
+    const { route } = parseHash();
+    if (app.studySession && route !== 'study' && route !== 'exam') {
+      for (const node of document.querySelectorAll('.study')) node.remove();
+      document.body.classList.remove('is-studying');
       app.studySession = null;
       app.tabbar.style.display = '';
     }

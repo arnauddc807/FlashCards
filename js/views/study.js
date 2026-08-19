@@ -10,7 +10,7 @@ import { el, clear, haptic, toast, formatPercent } from '../ui.js';
 import { icon } from '../icons.js';
 import { Rating, State, retrievability } from '../fsrs.js';
 import {
-  buildQueue, applyReview, previewAll, formatInterval, DAY, dayIndex,
+  buildQueue, applyReview, previewAll, formatInterval, DAY, dayIndex, sampleRandom,
 } from '../scheduler.js';
 import { commitReview, cardsForDeck, reviewsForDeck } from '../store.js';
 import { currentSettings } from '../settings.js';
@@ -38,15 +38,52 @@ export async function openStudy(deck, { onExit }) {
   return session;
 }
 
+/**
+ * Exam mode: a random sample of the whole deck, self-graded correct/wrong,
+ * scored at the end. Deliberately writes nothing — an exam is an assessment,
+ * and failing half a deck must not flood the relearning queue or distort the
+ * FSRS memory state.
+ */
+export async function openExam(deck, { count, onExit, cards = null }) {
+  const settings = currentSettings();
+  const pool = cards || (await cardsForDeck(deck.id)).filter((c) => !c.suspended);
+  const sampled = sampleRandom(pool, Math.min(count, pool.length));
+
+  const session = new StudySession({
+    deck,
+    settings,
+    mode: 'exam',
+    examCards: sampled,
+    onExit: (result) => {
+      // The score screen can chain straight into another sitting.
+      if (result?.examAction === 'retake-missed' && result.missed?.length) {
+        openExam(deck, { count: result.missed.length, onExit, cards: result.missed });
+      } else if (result?.examAction === 'new') {
+        openExam(deck, { count, onExit });
+      } else {
+        onExit?.(result);
+      }
+    },
+  });
+  session.mount();
+  return session;
+}
+
 class StudySession {
-  constructor({ deck, queue, settings, onExit }) {
+  constructor({ deck, queue, settings, onExit, mode = 'study', examCards = [] }) {
     this.deck = deck;
     this.settings = settings;
     this.onExit = onExit;
+    this.mode = mode;
 
-    // Interleave new cards into the review stream rather than front-loading
-    // them: a wall of 20 unknown cards is the fastest way to quit a session.
-    this.pending = interleave(queue.learning, queue.review, queue.new);
+    if (this.isExam) {
+      this.pending = examCards.slice();
+      this.missed = [];       // cards answered wrong, for the score screen
+    } else {
+      // Interleave new cards into the review stream rather than front-loading
+      // them: a wall of 20 unknown cards is the fastest way to quit a session.
+      this.pending = interleave(queue.learning, queue.review, queue.new);
+    }
     this.initialTotal = this.pending.length;
 
     this.stats = { reviewed: 0, again: 0, hard: 0, good: 0, easy: 0, startedAt: Date.now() };
@@ -54,6 +91,10 @@ class StudySession {
     this.revealed = false;
     this.cardShownAt = 0;
     this.animating = false;
+  }
+
+  get isExam() {
+    return this.mode === 'exam';
   }
 
   mount() {
@@ -100,6 +141,43 @@ class StudySession {
   }
 
   renderTopBar() {
+    if (this.isExam) {
+      const wrong = this.stats.again;
+      const correct = this.stats.reviewed - wrong;
+      return el('div', { class: 'study__top' }, [
+        el('button', {
+          class: 'icon-btn',
+          type: 'button',
+          'aria-label': 'Quit exam',
+          onclick: () => this.exit(),
+        }, [icon('close')]),
+        el('div', { class: 'study__counts' }, [
+          el('span', {
+            class: `count count--due${correct ? '' : ' is-empty'}`,
+            text: `✓ ${correct}`,
+            title: 'Correct so far',
+          }),
+          el('span', {
+            class: `count count--wrong${wrong ? '' : ' is-empty'}`,
+            text: `✗ ${wrong}`,
+            title: 'Wrong so far',
+          }),
+          el('span', {
+            class: 'count',
+            text: `${this.pending.length} left`,
+            title: 'Questions remaining',
+          }),
+        ]),
+        el('button', {
+          class: 'icon-btn',
+          type: 'button',
+          'aria-label': 'Undo last answer',
+          disabled: this.history.length === 0,
+          onclick: () => this.undo(),
+        }, [icon('undo')]),
+      ]);
+    }
+
     const counts = countByState(this.pending);
     const bar = el('div', { class: 'study__top' }, [
       el('button', {
@@ -195,11 +273,21 @@ class StudySession {
             : 'Tap to reveal',
         }));
       }
-      // Swipe direction badges
-      node.appendChild(el('div', { class: 'swipe-badge swipe-badge--again', text: 'Again' }));
-      node.appendChild(el('div', { class: 'swipe-badge swipe-badge--good', text: 'Got it' }));
-      node.appendChild(el('div', { class: 'swipe-badge swipe-badge--easy', text: 'Easy' }));
-      if (this.settings.showHardButton) {
+      // Swipe direction badges. In exam mode there are only two verdicts, so
+      // the up-swipe badge reads Correct as well and down has no meaning.
+      node.appendChild(el('div', {
+        class: 'swipe-badge swipe-badge--again',
+        text: this.isExam ? 'Wrong' : 'Again',
+      }));
+      node.appendChild(el('div', {
+        class: 'swipe-badge swipe-badge--good',
+        text: this.isExam ? 'Correct' : 'Got it',
+      }));
+      node.appendChild(el('div', {
+        class: 'swipe-badge swipe-badge--easy',
+        text: this.isExam ? 'Correct' : 'Easy',
+      }));
+      if (!this.isExam && this.settings.showHardButton) {
         node.appendChild(el('div', { class: 'swipe-badge swipe-badge--hard', text: 'Hard' }));
       }
       this.badges = {
@@ -225,6 +313,26 @@ class StudySession {
             text: 'Show answer',
             onclick: () => this.reveal(),
           }),
+        ])
+      );
+      return;
+    }
+
+    if (this.isExam) {
+      this.root.appendChild(
+        el('div', { class: 'study__actions' }, [
+          el('button', {
+            class: 'grade-btn grade-btn--again grade-btn--exam',
+            type: 'button',
+            'aria-label': 'Wrong — I did not know this',
+            onclick: () => this.grade(Rating.Again),
+          }, [icon('cross')]),
+          el('button', {
+            class: 'grade-btn grade-btn--good grade-btn--exam',
+            type: 'button',
+            'aria-label': 'Correct — I knew this',
+            onclick: () => this.grade(Rating.Good),
+          }, [icon('check')]),
         ])
       );
       return;
@@ -368,8 +476,11 @@ class StudySession {
       if (dx < -threshold || vx < -FLICK) return Rating.Again;
       return null;
     }
-    if (dy < -threshold || vy < -FLICK) return Rating.Easy;
-    if (this.settings.showHardButton && (dy > threshold || vy > FLICK)) return Rating.Hard;
+    // Exam has only two verdicts: up counts as Correct, down means nothing.
+    if (dy < -threshold || vy < -FLICK) return this.isExam ? Rating.Good : Rating.Easy;
+    if (!this.isExam && this.settings.showHardButton && (dy > threshold || vy > FLICK)) {
+      return Rating.Hard;
+    }
     return null;
   }
 
@@ -388,7 +499,7 @@ class StudySession {
       this.setWash(dx > 0 ? 'good' : 'again', Math.min(1, Math.abs(dx) / threshold) * 0.85);
     } else {
       if (dy < 0) show(Rating.Easy, -dy / threshold);
-      else if (this.settings.showHardButton) show(Rating.Hard, dy / threshold);
+      else if (!this.isExam && this.settings.showHardButton) show(Rating.Hard, dy / threshold);
       this.setWash(null, 0);
     }
   }
@@ -450,6 +561,19 @@ class StudySession {
     haptic(rating === Rating.Again ? [12, 40, 12] : rating === Rating.Easy ? [8, 30, 18] : 10,
       this.settings.hapticsEnabled);
 
+    if (this.isExam) {
+      const wrong = rating === Rating.Again;
+      this.history.push({ card, wrong });
+      this.stats.reviewed++;
+      this.stats[wrong ? 'again' : 'good']++;
+      if (wrong) this.missed.push(card);
+
+      this.pending.shift();
+      this.revealed = this.settings.autoRevealAnswer;
+      this.render();
+      return;
+    }
+
     const durationMs = Math.min(performance.now() - this.cardShownAt, 5 * 60 * 1000);
     const now = Date.now();
     const { card: updated, log } = applyReview(card, rating, this.settings, now, durationMs);
@@ -484,6 +608,21 @@ class StudySession {
     if (!last) return;
     haptic(8, this.settings.hapticsEnabled);
 
+    if (this.isExam) {
+      this.pending.unshift(last.card);
+      this.stats.reviewed = Math.max(0, this.stats.reviewed - 1);
+      this.stats[last.wrong ? 'again' : 'good'] =
+        Math.max(0, this.stats[last.wrong ? 'again' : 'good'] - 1);
+      if (last.wrong) {
+        const idx = this.missed.lastIndexOf(last.card);
+        if (idx >= 0) this.missed.splice(idx, 1);
+      }
+      this.revealed = true;
+      this.render();
+      toast('Answer undone');
+      return;
+    }
+
     // Pull the card out of wherever it was requeued, then restore its pre-review state.
     const idx = this.pending.findIndex((c) => c.id === last.before.id);
     if (idx >= 0) this.pending.splice(idx, 1);
@@ -512,6 +651,7 @@ class StudySession {
   /* ---------------------------------------------------------- summary */
 
   renderSummary() {
+    if (this.isExam) return this.renderExamSummary();
     const { reviewed, again, hard, good, easy, startedAt } = this.stats;
     const minutes = Math.max(1, Math.round((Date.now() - startedAt) / 60000));
     const correct = hard + good + easy;
@@ -546,6 +686,104 @@ class StudySession {
         type: 'button',
         text: 'Done',
         onclick: () => this.exit(),
+      }),
+    ]);
+  }
+
+  renderExamSummary() {
+    const total = this.stats.reviewed;
+    const wrong = this.stats.again;
+    const correct = total - wrong;
+    const score = total ? correct / total : null;
+    const minutes = Math.max(1, Math.round((Date.now() - this.stats.startedAt) / 60000));
+
+    const emoji = score == null ? '📝'
+      : score >= 0.9 ? '🏆'
+      : score >= 0.7 ? '🎉'
+      : score >= 0.5 ? '📚'
+      : '🧗';
+
+    // Per-tag breakdown, only worth showing when the deck actually uses tags.
+    const byTag = new Map();
+    for (const { card, wrong: w } of this.history) {
+      const tag = card.tag || 'untagged';
+      if (!byTag.has(tag)) byTag.set(tag, { total: 0, correct: 0 });
+      const row = byTag.get(tag);
+      row.total++;
+      if (!w) row.correct++;
+    }
+    const tagRows = [...byTag.entries()].sort((a, b) => b[1].total - a[1].total);
+
+    return el('div', { class: 'view summary', style: { overflowY: 'auto' } }, [
+      el('div', { class: 'summary__emoji', text: emoji }),
+      el('h2', { class: 'summary__title', text: score == null ? 'Exam abandoned' : `Score: ${Math.round(score * 100)}%` }),
+      el('p', {
+        class: 'summary__sub',
+        text: total
+          ? `${correct} of ${total} correct in about ${minutes} minute${minutes === 1 ? '' : 's'}.`
+          : 'No questions were answered.',
+      }),
+
+      total
+        ? el('div', { class: 'exam-scorebar' }, [
+            el('div', { class: 'exam-scorebar__seg exam-scorebar__seg--correct', style: { flex: String(correct || 0) } }),
+            el('div', { class: 'exam-scorebar__seg exam-scorebar__seg--wrong', style: { flex: String(wrong || 0) } }),
+          ])
+        : null,
+
+      tagRows.length > 1
+        ? el('div', { class: 'card exam-tags' },
+            tagRows.map(([tag, r]) =>
+              el('div', { class: 'exam-tags__row' }, [
+                el('span', { class: 'exam-tags__name', text: tag }),
+                el('span', {
+                  class: 'exam-tags__score mono',
+                  text: `${r.correct}/${r.total}`,
+                  style: { color: r.correct === r.total ? 'var(--good)' : r.correct === 0 ? 'var(--again)' : 'var(--text)' },
+                }),
+              ])
+            )
+          )
+        : null,
+
+      this.missed.length
+        ? el('div', { class: 'exam-missed' }, [
+            el('h3', { class: 'section__title', text: `Missed (${this.missed.length})` }),
+            ...this.missed.map((card) =>
+              el('div', { class: 'exam-missed__item' }, [
+                el('div', { class: 'exam-missed__q', text: card.question }),
+                el('div', { class: 'exam-missed__a', text: card.answer }),
+              ])
+            ),
+          ])
+        : null,
+
+      el('div', { class: 'summary__actions' }, [
+        this.missed.length
+          ? el('button', {
+              class: 'btn btn--primary btn--block',
+              type: 'button',
+              text: `Retake the ${this.missed.length} missed`,
+              onclick: () => { this.destroy(); this.onExit?.({ examAction: 'retake-missed', missed: this.missed }); },
+            })
+          : null,
+        el('button', {
+          class: `btn ${this.missed.length ? 'btn--ghost' : 'btn--primary'} btn--block`,
+          type: 'button',
+          text: 'New exam',
+          onclick: () => { this.destroy(); this.onExit?.({ examAction: 'new' }); },
+        }),
+        el('button', {
+          class: 'btn btn--quiet btn--block',
+          type: 'button',
+          text: 'Done',
+          onclick: () => this.exit(),
+        }),
+      ]),
+
+      el('p', {
+        class: 'small faint mt-4',
+        text: 'Exams are practice only — they never change your review schedule.',
       }),
     ]);
   }

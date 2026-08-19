@@ -307,6 +307,21 @@ export function buildQueue(cards, settings, now = Date.now(), doneToday = { new:
   };
 }
 
+/**
+ * n items drawn uniformly at random, in random order, without repeats.
+ * Partial Fisher-Yates over a copy; `rand` is injectable for tests.
+ */
+export function sampleRandom(items, n, rand = Math.random) {
+  const pool = items.slice();
+  const take = Math.max(0, Math.min(n, pool.length));
+  for (let i = 0; i < take; i++) {
+    const j = i + Math.floor(rand() * (pool.length - i));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  pool.length = take;
+  return pool;
+}
+
 function shuffle(arr) {
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
